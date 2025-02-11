@@ -59,6 +59,11 @@ OpenAIConversation conversation = new OpenAIConversation(apiKey, ChatModel.GPT_4
 String response = conversation.askQuestion("You are a film expert, be snobby", "What are the three best Quentin Tarantino movies?", "asst_v1IzCzUzPPPdpAgyz5xoV5y0");
 ```
 
+#### Structured Output
+
+See [playground](https://platform.openai.com/docs/guides/structured-outputs?format=parse#how-to-use) for JSON schema
+See [example] (https://github.com/openai/openai-java/blob/main/openai-java-example/src/main/java/com/openai/example/StructuredOutputsExample.java) for rough openai API example
+
 
 
 

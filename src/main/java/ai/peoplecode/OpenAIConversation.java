@@ -2,8 +2,11 @@ package ai.peoplecode;
 
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
+import com.openai.core.JsonValue;
 import com.openai.models.*;
 import com.openai.models.Thread;
+import com.openai.core.JsonValue;
+import com.openai.models.ResponseFormatJsonSchema.JsonSchema;
 
 import java.util.*;
 
@@ -112,23 +115,57 @@ public class OpenAIConversation {
 
         StringBuilder rawResult = new StringBuilder();
 
-        this.conversationMemory
-                .addDeveloperMessage("Please provide" + count + " sample questions with '%%%' as the delimiter between " +
-                        "questions and omit any numbering of questions. Provide nothing else " +
-                        "but your sample questions. Ensure the maximum length of each question is " +
-                        maxWords + " words long.")
-                .addUserMessage(context);
+        //TODO: Must annotate this more, refactor where needed
+
+        // JSON schema
+        Map<String, Map<String, String>> properties = new HashMap<>();
+        properties.put("n", Map.of(
+                                    "type", "number",
+                                    "description", "The number of questions to be generated"));
+
+        properties.put("m", Map.of(
+                                "type", "number",
+                                "description", "The maximum word count allowed for each question"));
+
+        properties.put("questions", Map.of("type", "string",
+                                        "description", "A string containing questions separated by '%%%."));
+
+
+        JsonSchema.Schema schema = JsonSchema.Schema.builder()
+                .putAdditionalProperty("type", JsonValue.from("object"))
+                .putAdditionalProperty("properties", JsonValue.from(properties))
+                .build();
+
+
 
         List<ChatCompletionMessage> messages =
-                this.client.chat().completions().create(this.conversationMemory.build()).choices().stream()
-                        .map(ChatCompletion.Choice::message)
-                        .collect(toList());
+                this.client.chat().completions().create(
+                        this.conversationMemory
+                            .responseFormat(ResponseFormatJsonSchema.builder()
+                                    .jsonSchema(JsonSchema.builder()
+                                            .name("sample_questions")
+                                            .schema(schema)
+                                            .build())
+                                    .build())
+                        .addDeveloperMessage("Please provide" + count + " sample questions. Ensure the maximum length of each question is " + maxWords + " words long.")
+                        .addUserMessage(context)
+                        .build()
+                )
+                .choices()
+                .stream()
+                .map(ChatCompletion.Choice::message)
+                .toList();
 
         messages.stream().flatMap(message -> message.content().stream()).forEach(rawResult::append);
 
         messages.forEach(this.conversationMemory::addMessage);
 
         ArrayList<String> result = new ArrayList<>(Arrays.asList(rawResult.toString().split("%{3}")));
+
+        // TODO: either fix JSON schema or processing. Result example is below:
+        //  result[0] : {"questions":"What are iconic films from the 1960s?
+        //  result[1] : Who directed 'Psycho' in the 1960s?
+        //  result[2] : Which actress starred in 'Breakfast at Tiffany's'?","m":10,"n":3}
 
         this.conversationMessages.add("UserMessage: " + context);
         this.conversationMessages.add("AiMessage: " + result.toString());
@@ -231,8 +268,8 @@ public class OpenAIConversation {
 //        System.out.println("\nConversation History:");
 //        System.out.println(conversation);
 //
-        System.out.println(conversation.askQuestion("You are a film expert, be snobby", "What are your top three Christopher Nolan films?"));
-        System.out.println(conversation.askQuestion("You are a film expert, be snobby", "How old is the director?"));
+//        System.out.println(conversation.askQuestion("You are a film expert, be snobby", "What are your top three Christopher Nolan films?"));
+//        System.out.println(conversation.askQuestion("You are a film expert, be snobby", "How old is the director?"));
 //
 //        System.out.println(conversation.askQuestion("You are a film expert", "What are your top three Christopher Nolan films?"));
 //        System.out.println(conversation.askQuestion("You are a film expert", "How old is the director?"));
