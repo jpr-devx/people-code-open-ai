@@ -1,5 +1,9 @@
 package ai.peoplecode;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.core.JsonValue;
@@ -160,12 +164,23 @@ public class OpenAIConversation {
 
         messages.forEach(this.conversationMemory::addMessage);
 
-        ArrayList<String> result = new ArrayList<>(Arrays.asList(rawResult.toString().split("%{3}")));
-
-        // TODO: either fix JSON schema or processing. Result example is below:
+        //TODO: Write more for this in readme and code:
+        // Since structured output is used, the response comes back as JSON. Now I need to deserialize it. If I don't this is what result will be returned as:
         //  result[0] : {"questions":"What are iconic films from the 1960s?
         //  result[1] : Who directed 'Psycho' in the 1960s?
         //  result[2] : Which actress starred in 'Breakfast at Tiffany's'?","m":10,"n":3}
+        //  I need to get rid of everything besides the value for "questions". To do this I use the jackson library to read the JSON and get the value for 'questions'
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        String rawQuestions = "";
+        try {
+            JsonNode rootNode = objectMapper.readTree(rawResult.toString());
+            rawQuestions = rootNode.get("questions").asText();
+        } catch (JsonProcessingException e) { // TODO: More robust erorr handling here, will need to look more into what throws this exception
+            throw new RuntimeException(e);
+        }
+
+        ArrayList<String> result = new ArrayList<>(Arrays.asList(rawQuestions.split("%{3}")));
 
         this.conversationMessages.add("UserMessage: " + context);
         this.conversationMessages.add("AiMessage: " + result.toString());
