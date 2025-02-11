@@ -16,6 +16,8 @@ If using `IntelliJIDEA`, an environment variable can be set up by going to Run>E
 
 Once an environment variable has been configured, enter the label entered that corresponds to the API key entered as an environment variable in the `.getenv()` method
 
+Ensure JDK 23 is being used
+
 ```java
 String apiKey = System.getenv("OPENAI_API_KEY");
 ```

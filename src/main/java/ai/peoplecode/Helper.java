@@ -93,7 +93,8 @@ public class Helper {
                         .order(BetaThreadMessageListParams.Order.ASC)
                         .build());
         try {
-            return page.data().getLast().content().getFirst().textContentBlock().get().text()._value().toString();
+//            return page.data().getLast().content().getFirst().textContentBlock().get().text()._value().toString();
+            return page.data().getLast().content().getFirst().toString(); // todo: changed this, check later
         } catch (NoSuchElementException e) {
             throw new NoSuchElementException(e);
         }

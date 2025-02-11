@@ -4,10 +4,8 @@ import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.models.*;
 import com.openai.models.Thread;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.NoSuchElementException;
+
+import java.util.*;
 
 import static java.util.stream.Collectors.toList;
 
@@ -35,8 +33,7 @@ public class OpenAIConversation {
         this.conversationThread = this.client.beta().threads().create(BetaThreadCreateParams.builder().build());
         this.conversationMessages = new ArrayList<>();
         this.conversationMemory = ChatCompletionCreateParams.builder()
-                .model(ChatModel.GPT_4O_MINI)
-                .maxCompletionTokens(2048);
+                .model(modelName);
     }
 
     /**
@@ -47,29 +44,25 @@ public class OpenAIConversation {
      */
     public String askQuestion(String context, String question) {
 
+        StringBuilder result = new StringBuilder();
+
         this.conversationMemory
-                .addMessage(ChatCompletionDeveloperMessageParam.builder()
-                        .role(ChatCompletionDeveloperMessageParam.Role.DEVELOPER)
-                        .content(context)
-                        .build())
-                .addMessage(ChatCompletionUserMessageParam.builder()
-                        .role(ChatCompletionUserMessageParam.Role.USER)
-                        .content(question)
-                        .build());
+                .addDeveloperMessage(context)
+                .addUserMessage(question);
 
-        ChatCompletionMessage message = this.client.chat().completions().create(this.conversationMemory.build()).choices().getFirst().message();
+        List<ChatCompletionMessage> messages =
+                this.client.chat().completions().create(this.conversationMemory.build()).choices().stream()
+                        .map(ChatCompletion.Choice::message)
+                        .collect(toList());
 
-        String result;
+        messages.stream().flatMap(message -> message.content().stream()).forEach(result::append);
 
-        try {
-            result = message.content().get().toString();
-            this.conversationMessages.add("UserMessage: " + question);
-            this.conversationMessages.add("AiMessage: " + result);
-        } catch (NoSuchElementException error){
-            throw new NoSuchElementException("Error in chat completion, no message was extracted.");
-        }
+        messages.forEach(this.conversationMemory::addMessage);
 
-        return result;
+        this.conversationMessages.add("UserMessage: " + question);
+        this.conversationMessages.add("AiMessage: " + result.toString());
+
+        return result.toString();
     }
 
     /**
@@ -86,7 +79,7 @@ public class OpenAIConversation {
                 .assistants()
                 .update(BetaAssistantUpdateParams.builder()
                         .assistantId(assistantId)
-                        .model(modelName._value())
+                        .model(String.valueOf(modelName))
                         .build());
 
         this.client.beta()
@@ -117,31 +110,30 @@ public class OpenAIConversation {
      */
     public ArrayList<String> generateSampleQuestions(String context, int count, int maxWords){
 
+        StringBuilder rawResult = new StringBuilder();
+
         this.conversationMemory
-                .addMessage(ChatCompletionDeveloperMessageParam.builder()
-                        .role(ChatCompletionDeveloperMessageParam.Role.DEVELOPER)
-                        .content("Please provide" + count + " sample questions with '%%%' as the delimiter between " +
-                                "questions and omit any numbering of questions. Provide nothing else " +
-                                "but your sample questions. Ensure the maximum length of each question is " +
-                                maxWords + " words long.")
-                        .build())
-                .addMessage(ChatCompletionUserMessageParam.builder()
-                        .role(ChatCompletionUserMessageParam.Role.USER)
-                        .content(context)
-                        .build());
+                .addDeveloperMessage("Please provide" + count + " sample questions with '%%%' as the delimiter between " +
+                        "questions and omit any numbering of questions. Provide nothing else " +
+                        "but your sample questions. Ensure the maximum length of each question is " +
+                        maxWords + " words long.")
+                .addUserMessage(context);
 
-        ChatCompletionMessage message = this.client.chat().completions().create(this.conversationMemory.build()).choices().getFirst().message();
+        List<ChatCompletionMessage> messages =
+                this.client.chat().completions().create(this.conversationMemory.build()).choices().stream()
+                        .map(ChatCompletion.Choice::message)
+                        .collect(toList());
 
-        try {
-            ArrayList<String> unrefinedMessages = new ArrayList(Arrays.asList(message.content().get().split("%{3}")));
-            ArrayList<String> messages = new ArrayList<>();
-            unrefinedMessages.forEach(sampleQuestion -> {messages.add(sampleQuestion.trim());}); // Note: I did the .forEach to make things concise, should I do a for loop?
-            this.conversationMessages.add("UserMessage: " + context);
-            this.conversationMessages.add("AiMessage: " + messages.toString());
-            return messages;
-        } catch (NoSuchElementException error) {
-            throw new NoSuchElementException("Error in getting messages");
-        }
+        messages.stream().flatMap(message -> message.content().stream()).forEach(rawResult::append);
+
+        messages.forEach(this.conversationMemory::addMessage);
+
+        ArrayList<String> result = new ArrayList<>(Arrays.asList(rawResult.toString().split("%{3}")));
+
+        this.conversationMessages.add("UserMessage: " + context);
+        this.conversationMessages.add("AiMessage: " + result.toString());
+
+        return result;
     }
 
     /**
@@ -191,6 +183,18 @@ public class OpenAIConversation {
         this.conversationThread = this.client.beta().threads().create(BetaThreadCreateParams.builder().build());
     }
 
+    public void cliQandA(){
+        Scanner scanner = new Scanner(System.in);
+
+        String input;
+        do {
+            System.out.print("Enter a question or type \"exit\" to exit: ");
+            input = scanner.nextLine();
+            System.out.println(this.askQuestion("You are an expert assistant", input));
+        } while (!input.equals("exit"));
+
+    }
+
     /**
      * Provides String representation of OpenAIConversation object
      * @return String representation of conversationHistory ArrayList
@@ -216,25 +220,30 @@ public class OpenAIConversation {
         //  persists for the askQuestion method call below, even though a new developer message is added
         // Ask a question
 //        String response = conversation.askQuestion("You are a film expert, be snobby", "What are the three best Quentin Tarantino movies?");
-        String response = conversation.askQuestion("You are a film expert, be snobby", "What is the best Quentin Tarantino movie?");
-        System.out.println("Response: " + response);
+//        String response = conversation.askQuestion("You are a film expert, be snobby", "What is the best Quentin Tarantino movie?");
+//        System.out.println("Response: " + response);
+//
+//        // Ask another question to show continuation-- openAI knows 'he' is Tarantino from memory
+//        response = conversation.askQuestion("You are a film expert, be snobby", "Why did you pick that as your top 1?");
+//        System.out.println("Response: " + response);
+//
+//        // Print conversation history
+//        System.out.println("\nConversation History:");
+//        System.out.println(conversation);
+//
+        System.out.println(conversation.askQuestion("You are a film expert, be snobby", "What are your top three Christopher Nolan films?"));
+        System.out.println(conversation.askQuestion("You are a film expert, be snobby", "How old is the director?"));
+//
+//        System.out.println(conversation.askQuestion("You are a film expert", "What are your top three Christopher Nolan films?"));
+//        System.out.println(conversation.askQuestion("You are a film expert", "How old is the director?"));
 
-        // Ask another question to show continuation-- openAI knows 'he' is Tarantino from memory
-        response = conversation.askQuestion("You are a film expert, be snobby", "How old is he");
-        System.out.println("Response: " + response);
+//        conversation.test("You are a film expert", "What are your top three Christopher Nolan films?");
+//        conversation.test("You are a film expert", "How old is the director?");
 
-        // Print conversation history
+//        System.out.println(conversation);
         System.out.println("\nConversation History:");
         System.out.println(conversation);
 
-        conversation.askQuestion("You are a film expert", "What are your top three Christopher Nolan films?");
-        conversation.askQuestion("You are a film expert", "How old is the director?");
-
-        System.out.println(conversation.askQuestion("You are a film expert", "What are your top three Christopher Nolan films?"));
-        System.out.println(conversation.askQuestion("You are a film expert", "How old is the director?"));
-
-//        conversation.test();
-
-        System.out.println(conversation);
+//        conversation.cliQandA();
     }
 }
