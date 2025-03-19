@@ -81,7 +81,6 @@ public class OpenAIConversation {
      */
     public String askQuestion(String context, String question, String assistantId){
 
-        // Updates the assistant with the passed in modelName param in case there is a difference between param and currently selected model
         Assistant assistant = this.client.beta()
                 .assistants()
                 .update(BetaAssistantUpdateParams.builder()
@@ -141,24 +140,50 @@ public class OpenAIConversation {
                 .build();
 
 
+        /*
+        NOTE: I commented out the block below and added the two blocks below. It works but I am still confused
+        why the developerMessage in this method leaks into the askQuestion method calls that come later. Maybe
+        there is something that is different with how I inject the developerMessages in each method?
+         */
+
+        ChatCompletionCreateParams.Builder tempMemory = ChatCompletionCreateParams.builder().model(modelName);
 
         List<ChatCompletionMessage> messages =
                 this.client.chat().completions().create(
-                        this.conversationMemory
-                            .responseFormat(ResponseFormatJsonSchema.builder()
-                                    .jsonSchema(JsonSchema.builder()
-                                            .name("sample_questions")
-                                            .schema(schema)
-                                            .build())
-                                    .build())
-                        .addDeveloperMessage("Please provide" + count + " sample questions. Ensure the maximum length of each question is " + maxWords + " words long.")
-                        .addUserMessage(context)
-                        .build()
-                )
-                .choices()
-                .stream()
-                .map(ChatCompletion.Choice::message)
-                .toList();
+                                tempMemory
+                                        .responseFormat(ResponseFormatJsonSchema.builder()
+                                                .jsonSchema(JsonSchema.builder()
+                                                        .name("sample_questions")
+                                                        .schema(schema)
+                                                        .build())
+                                                .build())
+                                        .addDeveloperMessage("Please provide" + count + " sample questions. Ensure the maximum length of each question is " + maxWords + " words long.")
+                                        .addUserMessage(context)
+                                        .build()
+                        )
+                        .choices()
+                        .stream()
+                        .map(ChatCompletion.Choice::message)
+                        .toList();
+
+
+//        List<ChatCompletionMessage> messages =
+//                this.client.chat().completions().create(
+//                        this.conversationMemory
+//                            .responseFormat(ResponseFormatJsonSchema.builder()
+//                                    .jsonSchema(JsonSchema.builder()
+//                                            .name("sample_questions")
+//                                            .schema(schema)
+//                                            .build())
+//                                    .build())
+//                        .addDeveloperMessage("Please provide" + count + " sample questions. Ensure the maximum length of each question is " + maxWords + " words long.")
+//                        .addUserMessage(context)
+//                        .build()
+//                )
+//                .choices()
+//                .stream()
+//                .map(ChatCompletion.Choice::message)
+//                .toList();
 
         messages.stream().flatMap(message -> message.content().stream()).forEach(rawResult::append);
 
@@ -256,6 +281,7 @@ public class OpenAIConversation {
         return this.conversationMessages.toString();
     }
 
+
     public static void main(String[] args){
 
         String apiKey = System.getenv("OPENAI_API_KEY");
@@ -271,21 +297,24 @@ public class OpenAIConversation {
         // Note: it seems like the context that's injected in the generateSampleQuestions method (insert %%% as delimeter)
         //  persists for the askQuestion method call below, even though a new developer message is added
         // Ask a question
-//        String response = conversation.askQuestion("You are a film expert, be snobby", "What are the three best Quentin Tarantino movies?");
-//        String response = conversation.askQuestion("You are a film expert, be snobby", "What is the best Quentin Tarantino movie?");
-//        System.out.println("Response: " + response);
+        String response = conversation.askQuestion("You are a film expert, be snobby", "What are the three best Quentin Tarantino movies?");
+        System.out.println("Response: " + response);
 //
-//        // Ask another question to show continuation-- openAI knows 'he' is Tarantino from memory
-//        response = conversation.askQuestion("You are a film expert, be snobby", "Why did you pick that as your top 1?");
-//        System.out.println("Response: " + response);
+//        // Ask another question to show continuation-- openAI knows the top movie listed by memory
+        response = conversation.askQuestion("You are a film expert, be snobby", "Why did you pick that as your top 1?");
+        System.out.println("Response: " + response);
 //
 //        // Print conversation history
-//        System.out.println("\nConversation History:");
-//        System.out.println(conversation);
+        System.out.println("\nConversation History:");
+        System.out.println(conversation);
 //
-//        System.out.println(conversation.askQuestion("You are a film expert, be snobby", "What are your top three Christopher Nolan films?"));
-//        System.out.println(conversation.askQuestion("You are a film expert, be snobby", "How old is the director?"));
+
+
+        // Testing out OpenAI assistant methods
+//        System.out.println(conversation.askQuestion("You are a film expert, be snobby", "What are your top three Christopher Nolan films?", assistantID));
+//        System.out.println(conversation.askQuestion("You are a film expert, be snobby", "How old is the director?", assistantID));
 //
+//        System.out.println(conversation.generateSampleQuestions("Questions about films in the 1960s", 3, 10, assistantID));
 //        System.out.println(conversation.askQuestion("You are a film expert", "What are your top three Christopher Nolan films?"));
 //        System.out.println(conversation.askQuestion("You are a film expert", "How old is the director?"));
 
@@ -293,8 +322,8 @@ public class OpenAIConversation {
 //        conversation.test("You are a film expert", "How old is the director?");
 
 //        System.out.println(conversation);
-        System.out.println("\nConversation History:");
-        System.out.println(conversation);
+//        System.out.println("\nConversation History:");
+//        System.out.println(conversation);
 
 //        conversation.cliQandA();
     }
