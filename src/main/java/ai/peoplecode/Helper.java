@@ -1,7 +1,6 @@
 package ai.peoplecode;
 import com.openai.core.JsonField;
 import com.openai.models.*;
-
 import java.util.List;
 import java.util.NoSuchElementException;
 
@@ -96,13 +95,10 @@ public class Helper {
                         .order(BetaThreadMessageListParams.Order.ASC)
                         .build());
         try {
-//            return page.data().getLast().content().getFirst().textContentBlock().get().text()._value().toString();
-
-
             JsonField<List<MessageContent>> content = page.data().getLast()._content();
-            return page.data().getLast().content().getFirst().toString(); // todo: changed this, check later
+            return page.data().getLast().content().getFirst().text().get().text()._value().toString();
         } catch (NoSuchElementException e) {
-            throw new NoSuchElementException(e);
+            throw new NoSuchElementException("Something went wrong in accessing the OpenAI thread" + e);
         }
     }
 
