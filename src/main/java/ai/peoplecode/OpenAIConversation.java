@@ -1,7 +1,6 @@
 package ai.peoplecode;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.client.OpenAIClient;
@@ -9,10 +8,13 @@ import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.core.JsonValue;
 import com.openai.models.*;
 import com.openai.models.Thread;
-import com.openai.core.JsonValue;
 import com.openai.models.ResponseFormatJsonSchema.JsonSchema;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Arrays;
 
 import static java.util.stream.Collectors.toList;
 
@@ -40,7 +42,7 @@ public class OpenAIConversation {
         this.conversationThread = this.client.beta().threads().create(BetaThreadCreateParams.builder().build());
         this.conversationMessages = new ArrayList<>();
         this.conversationMemory = ChatCompletionCreateParams.builder()
-                .model(modelName);
+                                    .model(modelName);
     }
 
     /**
@@ -118,9 +120,10 @@ public class OpenAIConversation {
 
         StringBuilder rawResult = new StringBuilder();
 
-        //TODO: Must annotate this more, refactor where needed
+
 
         // JSON schema
+        // see https://platform.openai.com/docs/guides/structured-outputs?api-mode=responses for walkthrough
         Map<String, Map<String, String>> properties = new HashMap<>();
         properties.put("n", Map.of(
                                     "type", "number",
@@ -139,76 +142,44 @@ public class OpenAIConversation {
                 .putAdditionalProperty("properties", JsonValue.from(properties))
                 .build();
 
-
-        /*
-        NOTE: I commented out the block below and added the two blocks below. It works but I am still confused
-        why the developerMessage in this method leaks into the askQuestion method calls that come later. Maybe
-        there is something that is different with how I inject the developerMessages in each method?
-         */
-
         ChatCompletionCreateParams.Builder tempMemory = ChatCompletionCreateParams.builder().model(modelName);
 
         List<ChatCompletionMessage> messages =
                 this.client.chat().completions().create(
-                                tempMemory
-                                        .responseFormat(ResponseFormatJsonSchema.builder()
-                                                .jsonSchema(JsonSchema.builder()
-                                                        .name("sample_questions")
-                                                        .schema(schema)
-                                                        .build())
-                                                .build())
-                                        .addDeveloperMessage("Please provide" + count + " sample questions. Ensure the maximum length of each question is " + maxWords + " words long.")
-                                        .addUserMessage(context)
-                                        .build()
-                        )
+                                tempMemory.responseFormat(ResponseFormatJsonSchema.builder()
+                                                            .jsonSchema(JsonSchema.builder()
+                                                            .name("sample_questions")
+                                                            .schema(schema)
+                                                            .build())
+                                    .build())
+                                    .addDeveloperMessage("Please provide" + count + " sample questions. Ensure the maximum length of each question is " + maxWords + " words long.")
+                                    .addUserMessage(context)
+                                .build())
                         .choices()
                         .stream()
                         .map(ChatCompletion.Choice::message)
                         .toList();
 
-
-//        List<ChatCompletionMessage> messages =
-//                this.client.chat().completions().create(
-//                        this.conversationMemory
-//                            .responseFormat(ResponseFormatJsonSchema.builder()
-//                                    .jsonSchema(JsonSchema.builder()
-//                                            .name("sample_questions")
-//                                            .schema(schema)
-//                                            .build())
-//                                    .build())
-//                        .addDeveloperMessage("Please provide" + count + " sample questions. Ensure the maximum length of each question is " + maxWords + " words long.")
-//                        .addUserMessage(context)
-//                        .build()
-//                )
-//                .choices()
-//                .stream()
-//                .map(ChatCompletion.Choice::message)
-//                .toList();
-
         messages.stream().flatMap(message -> message.content().stream()).forEach(rawResult::append);
 
         messages.forEach(this.conversationMemory::addMessage);
 
-        //TODO: Write more for this in readme and code:
-        // Since structured output is used, the response comes back as JSON. Now I need to deserialize it. If I don't this is what result will be returned as:
-        //  result[0] : {"questions":"What are iconic films from the 1960s?
-        //  result[1] : Who directed 'Psycho' in the 1960s?
-        //  result[2] : Which actress starred in 'Breakfast at Tiffany's'?","m":10,"n":3}
-        //  I need to get rid of everything besides the value for "questions". To do this I use the jackson library to read the JSON and get the value for 'questions'
-
+        // Since structured output is used and a schema is provided, the response returned will be in JSON. Prior to
+        // splitting by the delimiter requested above we need to parse the JSON for what's contained in value for
+        // "questions" that is contained in the rawResult StringBuilder.
         ObjectMapper objectMapper = new ObjectMapper();
-        String rawQuestions = "";
+        String rawQuestions;
         try {
             JsonNode rootNode = objectMapper.readTree(rawResult.toString());
             rawQuestions = rootNode.get("questions").asText();
-        } catch (JsonProcessingException e) { // TODO: More robust erorr handling here, will need to look more into what throws this exception
-            throw new RuntimeException(e);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Error occurred in parsing JSON holding sample questions");
         }
 
         ArrayList<String> result = new ArrayList<>(Arrays.asList(rawQuestions.split("%{3}")));
 
         this.conversationMessages.add("UserMessage: " + context);
-        this.conversationMessages.add("AiMessage: " + result.toString());
+        this.conversationMessages.add("AiMessage: " + result);
 
         return result;
     }
@@ -253,28 +224,18 @@ public class OpenAIConversation {
     }
 
     /**
-     * Clears conversationHistory ArrayList data member
+     * Clears conversationMessage ArrayList data member, spins up new Thread for assistant to work on and the conversation
+     * memory that is used to feed context for past conversation
      */
     public void reset(){
         this.conversationMessages.clear();
         this.conversationThread = this.client.beta().threads().create(BetaThreadCreateParams.builder().build());
-    }
-
-    public void cliQandA(){
-        Scanner scanner = new Scanner(System.in);
-
-        String input;
-        do {
-            System.out.print("Enter a question or type \"exit\" to exit: ");
-            input = scanner.nextLine();
-            System.out.println(this.askQuestion("You are an expert assistant", input));
-        } while (!input.equals("exit"));
-
+        this.conversationMemory = ChatCompletionCreateParams.builder().model(modelName);
     }
 
     /**
      * Provides String representation of OpenAIConversation object
-     * @return String representation of conversationHistory ArrayList
+     * @return String representation of conversationMessage ArrayList
      */
     @Override
     public String toString(){
@@ -285,46 +246,45 @@ public class OpenAIConversation {
     public static void main(String[] args){
 
         String apiKey = System.getenv("OPENAI_API_KEY");
-        String assistantID = System.getenv("ASSISTANT1");
 
-//        // Example conversation
+        // Example conversation
         OpenAIConversation conversation = new OpenAIConversation(apiKey, ChatModel.GPT_4O_MINI);
-//
-//        // Generate sample questions
+
+        // Generate sample questions
         ArrayList<String> questions = conversation.generateSampleQuestions("Questions about films in the 1960s", 3, 10);
         System.out.println("Sample questions: " + questions);
 
-        // Note: it seems like the context that's injected in the generateSampleQuestions method (insert %%% as delimeter)
-        //  persists for the askQuestion method call below, even though a new developer message is added
         // Ask a question
-        String response = conversation.askQuestion("You are a film expert, be snobby", "What are the three best Quentin Tarantino movies?");
+        String response = conversation.askQuestion("You are a film expert, be concise and to the point", "What was the most recent movie that Quentin Tarantino directed?");
         System.out.println("Response: " + response);
-//
-//        // Ask another question to show continuation-- openAI knows the top movie listed by memory
-        response = conversation.askQuestion("You are a film expert, be snobby", "Why did you pick that as your top 1?");
+
+        // Ask another question to show continuation-- openAI knows the top movie listed by memory
+        response = conversation.askQuestion("You are a film expert, be concise and to the point", "Can you be even more concise?");
         System.out.println("Response: " + response);
-//
-//        // Print conversation history
+
+        // Print conversation history
         System.out.println("\nConversation History:");
         System.out.println(conversation);
+
+
+//        // Testing out OpenAI assistant methods
+//        String assistantID = System.getenv("ASSISTANT1"); // Ensure that you have an environment variable "ASSISTANT1" with the assistantID
 //
-
-
-        // Testing out OpenAI assistant methods
-//        System.out.println(conversation.askQuestion("You are a film expert, be snobby", "What are your top three Christopher Nolan films?", assistantID));
-//        System.out.println(conversation.askQuestion("You are a film expert, be snobby", "How old is the director?", assistantID));
+//        // Generate sample questions
+//        ArrayList<String> asstQuestions = conversation.generateSampleQuestions("Questions about films in the 1960s", 3, 10, assistantID);
+//        System.out.println("Sample questions: " + asstQuestions);
 //
-//        System.out.println(conversation.generateSampleQuestions("Questions about films in the 1960s", 3, 10, assistantID));
-//        System.out.println(conversation.askQuestion("You are a film expert", "What are your top three Christopher Nolan films?"));
-//        System.out.println(conversation.askQuestion("You are a film expert", "How old is the director?"));
-
-//        conversation.test("You are a film expert", "What are your top three Christopher Nolan films?");
-//        conversation.test("You are a film expert", "How old is the director?");
-
-//        System.out.println(conversation);
+//        // Ask a question
+//        String asstResponse = conversation.askQuestion("You are a film expert, be concise and to the point", "What was the most recent movie that Quentin Tarantino directed?", assistantID);
+//        System.out.println("Response: " + asstResponse);
+//
+//        // Ask another question to show continuation-- openAI knows the top movie listed by memory
+//        asstResponse = conversation.askQuestion("You are a film expert, be concise and to the point", "Can you be even more concise?", assistantID);
+//        System.out.println("Response: " + asstResponse);
+//
+//        // Print conversation history
 //        System.out.println("\nConversation History:");
 //        System.out.println(conversation);
 
-//        conversation.cliQandA();
     }
 }
