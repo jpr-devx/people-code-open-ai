@@ -37,7 +37,7 @@ public OpenAIConversation(String apiKey, ChatModel modelName) {
         this.modelName = modelName;
         this.conversationThread = this.client.beta().threads().create(BetaThreadCreateParams.builder().build());
         this.conversationHistory = new ArrayList<>();
-    }
+}
 ```
 
 Rather than a string model name, we use the constants that OpenAI's API provides through their ChatModel class
@@ -73,24 +73,26 @@ In the code snippet below, we use OpenAI's structured output to put the LLM's re
 a response with a given structure through normal chat completion, there can be variation in the form that the response 
 is in from answer to answer. Structured outputs limits this variation with the **schema** we give it.
 
-```
+```java
+public static void main(String[] args) {
     Map<String, Map<String, String>> properties = new HashMap<>();
     properties.put("n", Map.of(
-                                "type", "number",
-                                "description", "The number of questions to be generated"));
-
+            "type", "number",
+            "description", "The number of questions to be generated"));
+    
     properties.put("m", Map.of(
-                            "type", "number",
-                            "description", "The maximum word count allowed for each question"));
-
+            "type", "number",
+            "description", "The maximum word count allowed for each question"));
+    
     properties.put("questions", Map.of("type", "string",
-                                    "description", "A string containing questions separated by '%%%."));
-
-
+            "description", "A string containing questions separated by '%%%."));
+    
+    
     JsonSchema.Schema schema = JsonSchema.Schema.builder()
             .putAdditionalProperty("type", JsonValue.from("object"))
             .putAdditionalProperty("properties", JsonValue.from(properties))
             .build();
+}
 ```
 
 Above we give three parameters:
@@ -108,14 +110,18 @@ Since structured output is used, the response comes back as JSON. Now I need to 
 If we were to ask the question "What are iconic films from the 1960s?" with 3 questions at a max word length of 10 and 
 we split be delimiter we would get the following: <br>
 If I don't this is what result will be returned as:<br><br>
-result[0] : {"questions":"What are iconic films from the 1960s?<br>
-result[1] : Who directed 'Psycho' in the 1960s?<br>
-result[2] : Which actress starred in 'Breakfast at Tiffany's'?","m":10,"n":3}<br>
+```
+    result[0] : {"questions":"What are iconic films from the 1960s?<br>
+    result[1] : Who directed 'Psycho' in the 1960s?<br>
+    result[2] : Which actress starred in 'Breakfast at Tiffany's'?","m":10,"n":3}<br>
+```
 <br>
 I need to get rid of everything besides the value for "questions". To do this I use the jackson library to read the JSON 
 and get the value for 'questions'. We need to encapsulate this code in a try/catch block in the event that there is a 
 JSON parsing error
-```
+
+```java
+public static void main(String[] args) {
     ObjectMapper objectMapper = new ObjectMapper();
     String rawQuestions;
     try {
@@ -126,6 +132,7 @@ JSON parsing error
     }
 
     ArrayList<String> result = new ArrayList<>(Arrays.asList(rawQuestions.split("%{3}")));
+}
 ```
 
 
